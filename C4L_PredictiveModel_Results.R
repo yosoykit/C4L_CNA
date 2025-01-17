@@ -58,7 +58,7 @@ cbind(exp(cbind(OR = coef(log_reg_PSC), confint((log_reg_PSC)))),pval=coef(summa
 
 
 
-# Calculate PPV and NPV of CNA score over time in validation data.
+# Calculate PPV and NPV of univariate genomic CNA score over time in validation data.
 
 month6 = 365.25/2
 month12 = 365.25
@@ -226,7 +226,7 @@ arrows(x0=c(.5,1:5), y0=apply(npv_boot,1,FUN = lowerCI), x1=c(.5,1:5), y1=apply(
 
 
 
-## KM plots
+## Kaplan-Meier survival curve plots
 
 # univariate CNA score
 ####################
@@ -245,7 +245,7 @@ ggsurvplot(validfit, data = data_TP1V,risk.table = TRUE ,pval=T,legend.labs=c('l
 
 
 
-## Multivariate model selection
+## Multivariate model selection with genomics + UC-CaRE variables
 
 log_reg_all <- glm(ProgressiontoAN~CNA_MSI_score+UCCaRETP1size+UCCaRETP1inflammation+UCCaRETP1multifocal+UCCaRETP1unresected, data=data_TP1D, family="binomial")
 cbind(exp(cbind(OR = coef(log_reg_all), confint((log_reg_all)))),pval=coef(summary(log_reg_all))[,4])
@@ -271,7 +271,7 @@ discovfit = survfit(Surv(CensorTime,ProgressiontoAN) ~ temp, data = data_TP1D)
 ggsurvplot(discovfit, data = data_TP1D,risk.table = TRUE ,pval=T,legend.labs=c('low-risk','high-risk'), ,pval.coord = c(4000,0.25), legend.title =  "Discovery (n=67)",  ylab = "HGD/CRC progression-free survival", xlab= "Follow-up (days)", palette='npg', size=2, censor.size=6)
 
 
-
+# Keep data in validation if they have information on incomplete LGD resection
 valid_data = data_TP1V[!is.na(data_TP1V$UCCaRETP1unresected),]
 
 valid_data_glm_predictions = predict(log_reg_CNA_unresec,newdata=valid_data,type='response')
@@ -472,51 +472,63 @@ arrows(x0=c(.5,1:5), y0=apply(npv_boot,1,FUN = lowerCI), x1=c(.5,1:5), y1=apply(
 
 
 
-# Calculate AUCs
+################################
+#   Calculate AUCs at 5 years  #
+################################
 
 
-valid_data = data_TP1V
-#### Remove validation patients who either progressed after 5 years or were censored before 5 years (13 patients) to compare with discovery data more closely ####
+#Univariate CNA score only
+# Discovery
 
-late_P = which(data_TP1V$CensorTime>1826 & data_TP1V$ProgressiontoAN==1)
-early_NP = which(data_TP1V$CensorTime<1826 & data_TP1V$ProgressiontoAN==0)
-	
-data_TP1_valid = data_TP1V[-c(late_P, early_NP),]
+discov_data = data_TP1D[-which(data_TP1D$ProgressiontoAN==0 & data_TP1D$CensorTime<(365.25*5)),]
+discov_data$ProgressiontoAN[discov_data$ProgressiontoAN==1 & discov_data$CensorTime>(365.25*5)] = 0
 
-
-valid_data = data_TP1_valid
-
-# Discov
-pred1 <- prediction(predict(log_reg_CNA), data_TP1D$ProgressiontoAN)
+pred1 <- prediction(predict(log_reg_CNA, newdata=discov_data), discov_data$ProgressiontoAN)
 perf_AUC=performance(pred1,"auc")
 
 print(perf_AUC@y.values[[1]])
-#[1] 0.8535354
+#[1] 0.8465909
 
-# Valid
+# Validation
+
+valid_data = data_TP1V
+valid_data = valid_data[-which(valid_data$ProgressiontoAN==0 & valid_data$CensorTime<(365.25*5)),]
+valid_data$ProgressiontoAN[valid_data$ProgressiontoAN==1 & valid_data$CensorTime>(365.25*5)] = 0
+
 pred1 <- prediction(predict(log_reg_CNA, newdata=valid_data), valid_data$ProgressiontoAN)
 perf_AUC=performance(pred1,"auc")
 
 print(perf_AUC@y.values[[1]])
-#[1] 0.8571429
+#[1] 0.8415179
 
 
-# CNA score + unresected only
 
-#### Remove validation patients who do not have resection completion information####
+# multivariate: CNA score + unresected only
 
-valid_data = data_TP1_valid[!is.na(data_TP1_valid$UCCaRETP1unresected),]
+## Alternatively (sens+spec)/2 at each timepoint
 
-# Discov
-pred1 <- prediction(predict(log_reg_CNA_unresec), data_TP1D$ProgressiontoAN)
+# Discovery
+
+discov_data = data_TP1D[-which(data_TP1D$ProgressiontoAN==0 & data_TP1D$CensorTime<(365.25*5)),]
+discov_data$ProgressiontoAN[discov_data$ProgressiontoAN==1 & discov_data$CensorTime>(365.25*5)] = 0
+
+pred1 <- prediction(predict(log_reg_CNA_unresec, newdata=discov_data), discov_data$ProgressiontoAN)
 perf_AUC=performance(pred1,"auc")
 
 print(perf_AUC@y.values[[1]])
-#[1] 0.8974747
+#[1] 0.8903409
 
-# Valid
+# Validation
+
+valid_data = data_TP1V
+valid_data = valid_data[!is.na(valid_data$UCCaRETP1unresected),]
+valid_data = valid_data[-which(valid_data$ProgressiontoAN==0 & valid_data$CensorTime<(365.25*5)),] 
+valid_data$ProgressiontoAN[valid_data$ProgressiontoAN==1 & valid_data$CensorTime>(365.25*5)] = 0 ## integer(0), no progressor remains who progressed after 5 years
+
+
 pred1 <- prediction(predict(log_reg_CNA_unresec, newdata=valid_data), valid_data$ProgressiontoAN)
 perf_AUC=performance(pred1,"auc")
 
 print(perf_AUC@y.values[[1]])
 #[1] 0.9464286
+
